@@ -106,3 +106,11 @@ To integrate this server with the desktop app, add the following to your app's s
   }
 }
 ```
+
+## Modo HTTP (cloud)
+
+`node dist/index.js http` arranca um servidor Streamable HTTP sem estado, em vez de stdio.
+
+- `MCP_KEY` (obrigatória, 32+ caracteres): a chave de acesso. Aceita-se como `Authorization: Bearer <chave>` ou no caminho `/mcp/<chave>`.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`: substituem os ficheiros `gcp-oauth.keys.json` e `.gtasks-server-credentials.json`.
+- `PORT`: porta (por omissão 3000). `GET /healthz` responde 200 sem chave.

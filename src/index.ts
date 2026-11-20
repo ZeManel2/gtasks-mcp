@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 
-import { authenticate } from "@google-cloud/local-auth";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import crypto from "crypto";
 import fs from "fs";
 import { google, tasks_v1 } from "googleapis";
+import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createOAuthClient } from "./Auth.js";
@@ -19,6 +21,7 @@ import { TaskActions, TaskResources } from "./Tasks.js";
 
 const tasks = google.tasks("v1");
 
+function createServer() {
 const server = new Server(
   {
     name: "example-servers/gtasks",
@@ -261,11 +264,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   throw new Error("Tool not found");
 });
 
+return server;
+}
+
 const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const credentialsPath = path.join(rootDir, ".gtasks-server-credentials.json");
 const oauthKeysPath = path.join(rootDir, "gcp-oauth.keys.json");
 
 async function authenticateAndSaveCredentials() {
+  const { authenticate } = await import("@google-cloud/local-auth");
   console.log("Launching auth flow…");
   console.log(oauthKeysPath);
   const auth = await authenticate({
@@ -276,26 +283,96 @@ async function authenticateAndSaveCredentials() {
   console.log("Credentials saved. You can now run the server.");
 }
 
-async function loadCredentialsAndRunServer() {
+function loadGoogleAuth() {
+  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } =
+    process.env;
+  if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REFRESH_TOKEN) {
+    return createOAuthClient(
+      { installed: { client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET } },
+      { refresh_token: GOOGLE_REFRESH_TOKEN },
+    );
+  }
+
   if (!fs.existsSync(credentialsPath)) {
     console.error(
       "Credentials not found. Please run with 'auth' argument first.",
     );
     process.exit(1);
   }
-
   const oauthKeys = JSON.parse(fs.readFileSync(oauthKeysPath, "utf-8"));
-
   const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));
-  const auth = createOAuthClient(oauthKeys, credentials);
-  google.options({ auth });
+  return createOAuthClient(oauthKeys, credentials);
+}
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+async function runStdio() {
+  google.options({ auth: loadGoogleAuth() });
+  await createServer().connect(new StdioServerTransport());
+}
+
+const sha256 = (value: string) =>
+  crypto.createHash("sha256").update(value).digest();
+
+async function runHttp() {
+  const mcpKey = process.env.MCP_KEY;
+  if (!mcpKey || mcpKey.length < 32) {
+    console.error("MCP_KEY is required in http mode (at least 32 characters).");
+    process.exit(1);
+  }
+  const keyHash = sha256(mcpKey);
+  const isAuthorized = (candidate?: string) =>
+    !!candidate && crypto.timingSafeEqual(sha256(candidate), keyHash);
+
+  google.options({ auth: loadGoogleAuth() });
+
+  const reply = (res: http.ServerResponse, status: number, body: object) => {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+
+  const httpServer = http.createServer(async (req, res) => {
+    try {
+      const { pathname } = new URL(req.url ?? "/", "http://localhost");
+      if (pathname === "/healthz") return reply(res, 200, { status: "ok" });
+
+      const match = pathname.match(/^\/mcp(?:\/([^/]+))?$/);
+      if (!match) return reply(res, 404, { error: "Not found" });
+
+      const bearer = req.headers.authorization?.match(/^Bearer (.+)$/i)?.[1];
+      const pathKey = match[1] && decodeURIComponent(match[1]);
+      if (!isAuthorized(bearer) && !isAuthorized(pathKey)) {
+        return reply(res, 401, { error: "Unauthorized" });
+      }
+
+      if (req.method !== "POST") {
+        res.setHeader("Allow", "POST");
+        return reply(res, 405, { error: "Method not allowed" });
+      }
+
+      const server = createServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      res.on("close", () => {
+        transport.close();
+        server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error("Request failed:", error instanceof Error ? error.message : error);
+      if (!res.headersSent) reply(res, 500, { error: "Internal error" });
+    }
+  });
+
+  const port = Number(process.env.PORT ?? 3000);
+  httpServer.listen(port, () => console.log(`gtasks MCP listening on ${port}`));
 }
 
 if (process.argv[2] === "auth") {
   authenticateAndSaveCredentials().catch(console.error);
+} else if (process.argv[2] === "http") {
+  runHttp().catch(console.error);
 } else {
-  loadCredentialsAndRunServer().catch(console.error);
+  runStdio().catch(console.error);
 }
