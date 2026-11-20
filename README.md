@@ -71,7 +71,7 @@ The server provides access to Google Tasks resources:
 6. Download the JSON file of your client's OAuth keys
 7. Rename the key file to `gcp-oauth.keys.json` and place into the root of this repo (i.e. `gcp-oauth.keys.json`)
 
-Make sure to build the server with either `npm run build` or `npm run watch`.
+Make sure to build the server with `npm install` and `npm run build` (Node, via esbuild; works on Windows).
 
 ### Installing via Smithery
 
@@ -85,10 +85,10 @@ npx -y @smithery/cli install @zcaceres/gtasks --client claude
 
 To authenticate and save credentials:
 
-1. Run the server with the `auth` argument: `npm run start auth`
+1. Run the server with the `auth` argument: `node dist/index.js auth`
 2. This will open an authentication flow in your system browser
 3. Complete the authentication process
-4. Credentials will be saved in the root of this repo (i.e. `.gdrive-server-credentials.json`)
+4. Credentials will be saved in the root of this repo (i.e. `.gtasks-server-credentials.json`)
 
 ### Usage with Desktop App
 
@@ -98,7 +98,7 @@ To integrate this server with the desktop app, add the following to your app's s
 {
   "mcpServers": {
     "gtasks": {
-      "command": "/opt/homebrew/bin/node",
+      "command": "node",
       "args": [
         "{ABSOLUTE PATH TO FILE HERE}/dist/index.js"
       ]

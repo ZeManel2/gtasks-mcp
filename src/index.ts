@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { authenticate } from "@google-cloud/local-auth";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -13,6 +13,7 @@ import {
 import fs from "fs";
 import { google, tasks_v1 } from "googleapis";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createOAuthClient } from "./Auth.js";
 import { TaskActions, TaskResources } from "./Tasks.js";
 
@@ -260,21 +261,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   throw new Error("Tool not found");
 });
 
-const credentialsPath = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "../.gtasks-server-credentials.json",
-);
+const rootDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const credentialsPath = path.join(rootDir, ".gtasks-server-credentials.json");
+const oauthKeysPath = path.join(rootDir, "gcp-oauth.keys.json");
 
 async function authenticateAndSaveCredentials() {
   console.log("Launching auth flow…");
-  const p = path.join(
-    path.dirname(new URL(import.meta.url).pathname),
-    "../gcp-oauth.keys.json",
-  );
-
-  console.log(p);
+  console.log(oauthKeysPath);
   const auth = await authenticate({
-    keyfilePath: p,
+    keyfilePath: oauthKeysPath,
     scopes: ["https://www.googleapis.com/auth/tasks"],
   });
   fs.writeFileSync(credentialsPath, JSON.stringify(auth.credentials));
@@ -289,10 +284,6 @@ async function loadCredentialsAndRunServer() {
     process.exit(1);
   }
 
-  const oauthKeysPath = path.join(
-    path.dirname(new URL(import.meta.url).pathname),
-    "../gcp-oauth.keys.json",
-  );
   const oauthKeys = JSON.parse(fs.readFileSync(oauthKeysPath, "utf-8"));
 
   const credentials = JSON.parse(fs.readFileSync(credentialsPath, "utf-8"));

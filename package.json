@@ -14,9 +14,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
-    "dev": "bun --watch src/index.ts",
-    "start": "bun run src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js",
+    "start": "node dist/index.js",
     "test": "bun test"
   },
   "dependencies": {
@@ -25,6 +24,7 @@
     "googleapis": "^144.0.0"
   },
   "devDependencies": {
-    "bun-types": "^1.2.5"
+    "bun-types": "^1.2.5",
+    "esbuild": "^0.28.2"
   }
 }
